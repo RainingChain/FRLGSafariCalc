@@ -53,19 +53,20 @@ struct State
     return CatchMissProbBySafariCatchFactor[this->safariCatchFactor];
   }
 
-  void ApplyPlayerAction(PlayerAction playerAction, u8 playerActionValue)
+  State& ApplyActions(PlayerAction playerAction, u8 playerActionValue, PokemonAction pokemonAction)
   {
+    if (pokemonAction == PokemonAction::flee)
+      return *this; // Caught & flee logic is handled in Node class
+
     if (playerAction == PlayerAction::bait)
       this->OnBait(playerActionValue);
+
     else if (playerAction == PlayerAction::rock)
       this->OnRock(playerActionValue);
-    else if (playerAction == PlayerAction::ball)
-      this->OnBall(playerActionValue);
-  }
 
-  void OnBall(u8 playerActionValue)
-  {
-    // Nothing to do. Handle by Node class
+    this->OnPokemonWatchesCarefully();
+
+    return *this;
   }
 
   void OnRock(u8 playerActionValue)
@@ -86,24 +87,16 @@ struct State
       this->safariCatchFactor = 3;
   }
 
-  void ApplyPokemonAction(PokemonAction PokemonAction)
+  void OnPokemonWatchesCarefully()
   {
-    //if (PokemonAction == PokemonAction::flee)
-    //  Nothing to do. Handled by Node class
-
-    if (PokemonAction == PokemonAction::watchCarefully)
+    if (this->safariRockThrowCounter != 0)
     {
-      if (this->safariRockThrowCounter != 0)
-      {
-        --this->safariRockThrowCounter;
-        if (this->safariRockThrowCounter == 0)
-          this->safariCatchFactor = (u8)(State::catchRate * 100 / 1275);
-      }
-      else if (this->safariBaitThrowCounter != 0)
-        --this->safariBaitThrowCounter;
+      --this->safariRockThrowCounter;
+      if (this->safariRockThrowCounter == 0)
+        this->safariCatchFactor = (u8)(State::catchRate * 100 / 1275);
     }
+    else if (this->safariBaitThrowCounter != 0)
+      --this->safariBaitThrowCounter;
   }
 };
 
-u8 State::catchRate = 0;
-u8 State::safariZoneFleeRate = 0;
