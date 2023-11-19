@@ -5,16 +5,18 @@ using u16 = unsigned short;
 using u32 = unsigned long;
 using u64 = unsigned long long;
 
-enum PlayerAction
+enum PlayerAction : char
 {
   ball,
   bait,
   rock,
+  root,
 };
 
-enum PokemonAction
+enum PokemonAction : char
 {
   flee,
   watchCarefully,
   caught,
+  root2,
 };

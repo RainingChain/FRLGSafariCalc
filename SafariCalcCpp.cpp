@@ -34,13 +34,15 @@ General idea:
 #include <vector>
 #include <string.h>
 #include <string>
+#include <algorithm>
+#include <execution>
 
 #include "Types.hpp"
 #include "Constants.hpp"
 #include "Fraction.hpp"
 #include "State.hpp"
 
-static const bool CLEAR_CHILDREN = true;
+static constexpr int MAX_CHILD_COUNT = 10;
 
 static const char* DebugFilename = nullptr; // "C:\\rc\\safari.txt";
 
@@ -62,94 +64,91 @@ static FILE* DebugFile = nullptr;
 struct Node
 {
   const Node* parent = nullptr;
-  const std::vector<PlayerAction>& actionByTurn;
-  std::vector<Node> children;
-  const Fraction& playerActionProb;
-  const Fraction& pokemonActionProb;
-  PlayerAction playerAction = PlayerAction::bait;
-  u8 playerActionValue = 0;
-  PokemonAction pokemonAction = PokemonAction::flee;
-  State stateBefore;
+  Fraction playerActionProb = Fraction::ONE;
+  Fraction pokemonActionProb = Fraction::ONE;
+
+  Fraction probConsideringParent = Fraction::ONE;
+
   State stateAfter;
+  u8 playerActionValue = 0;
+  PokemonAction pokemonAction = PokemonAction::root2;
   u8 childTurn = 0;
 
-  Node(State stateBefore, const std::vector<PlayerAction>& actionByTurn) :
-    playerActionProb(Fraction::ONE),
-    pokemonActionProb(Fraction::ONE),
-    actionByTurn(actionByTurn),
-    stateBefore(stateBefore),
-    stateAfter(stateBefore)
-  {
-    this->childTurn = 0;
-  }
+  // Root
+  Node() = default;
 
-  Node(const Node& parent, const Fraction& playerActionProb, const Fraction& pokemonActionProb, PlayerAction playerAction, u8 playerActionValue, PokemonAction PokemonAction, State stateBefore) :
+  Node(const Node& parent, const Fraction& playerActionProb, const Fraction& pokemonActionProb, u8 playerActionValue, PokemonAction PokemonAction, State stateBefore) :
     playerActionProb(playerActionProb),
     pokemonActionProb(pokemonActionProb),
-    actionByTurn(parent.actionByTurn),
-    stateBefore(stateBefore),
     stateAfter(stateBefore)
   {
     this->parent = &parent;
     this->childTurn = parent.childTurn + 1;
-    this->playerAction = playerAction;
     this->playerActionValue = playerActionValue;
     this->pokemonAction = PokemonAction;
+
+    this->probConsideringParent = parent.probConsideringParent;
+    this->probConsideringParent.Mul(playerActionProb);
+    this->probConsideringParent.Mul(pokemonActionProb);
 
     ApplyActionsOnStateAfter();
   }
 
   void ApplyActionsOnStateAfter()
   {
-     this->stateAfter.ApplyPlayerAction((PlayerAction)this->playerAction, this->playerActionValue);
+     this->stateAfter.ApplyPlayerAction(this->GetPlayerAction(), this->playerActionValue);
 
-     if (!this->stateAfter.caught)
-      this->stateAfter.ApplyPokemonAction((PokemonAction)this->pokemonAction);
+     if (!this->IsCaught())
+      this->stateAfter.ApplyPokemonAction(this->pokemonAction);
   }
 
 
-  Fraction GenerateChildNodes_recursive()
+  Fraction GenerateChildNodes_recursive() const
   {
     if (DebugFile != nullptr)
       fprintf(DebugFile, "%s\n", DebugIdWithIndent().c_str());
 
-    GenerateChildNodes();
-    if (this->children.empty())
+    Node children[MAX_CHILD_COUNT];
+    size_t childCount = 0;
+
+    GenerateChildNodes(children, childCount);
+    if (childCount == 0) // Leaf
     {
-      if (this->stateAfter.caught)
-        return this->GetProb(true);
+      if (this->IsCaught())
+        return this->probConsideringParent;
       return Fraction::ZERO;
     }
 
-    Fraction prob(0);
-    for (auto& child : this->children)
-      prob.Add(child.GenerateChildNodes_recursive());
+    Fraction childrenProb[MAX_CHILD_COUNT];
 
-    if (CLEAR_CHILDREN)
+    std::transform(std::execution::seq, children, children + childCount, childrenProb, [&](const auto& child)
     {
-      this->children.clear();
-      this->children.shrink_to_fit();
-    }
+      return child.GenerateChildNodes_recursive();
+    });
 
-    return prob;
+    Fraction childrenProbSum(0);
+    for (size_t i = 0; i < childCount; i++)
+      childrenProbSum.Add(childrenProb[i]);
+
+    return childrenProbSum;
   }
 
-  void GenerateChildNodes()
+  void GenerateChildNodes(Node* children, size_t& childCount) const
   {
-    if (this->stateAfter.caught || this->stateAfter.fled)
+    if (this->IsCaught() || this->Fled())
       return;
 
-    if (this->childTurn >= this->actionByTurn.size())
+    if (this->childTurn >= actionByTurn.size())
       return;
 
-    auto playerAction = this->actionByTurn[this->childTurn];
+    auto childPlayerAction = actionByTurn[this->childTurn];
 
     const auto& [stayProb, fleeProb] = this->stateAfter.GetStayFleeProb();
 
     auto AddChildren = [&](u8 playerValue, const Fraction& playerActionProb)
     {
-      this->children.emplace_back(*this, playerActionProb, fleeProb, playerAction, playerValue, PokemonAction::flee, this->stateAfter);
-      this->children.emplace_back(*this, playerActionProb, stayProb, playerAction, playerValue, PokemonAction::watchCarefully, this->stateAfter);
+      children[childCount++] = Node(*this, playerActionProb, fleeProb, playerValue, PokemonAction::flee, this->stateAfter);
+      children[childCount++] = Node(*this, playerActionProb, stayProb, playerValue, PokemonAction::watchCarefully, this->stateAfter);
     };
 
     static const Fraction mod5_eq0(13108, 65536); // RandomUint16 % 5 is more likely to be 0 than 1,2,3,4
@@ -159,15 +158,15 @@ struct Node
     static const Fraction mod5_eq1234_mul3 = mod5_eq1234.MulNew(3);
     static const Fraction mod5_eq1234_mul4 = mod5_eq1234.MulNew(4);
 
-    if (playerAction == PlayerAction::ball)
+    if (childPlayerAction == PlayerAction::ball)
     {
       const auto& [catchProb, missProb] = this->stateAfter.GetCatchMissProb();
 
-      this->children.emplace_back(*this, catchProb, Fraction::ONE, playerAction, 1, PokemonAction::caught, this->stateAfter);
+      children[childCount++] = Node(*this, catchProb, Fraction::ONE, 1, PokemonAction::caught, this->stateAfter);
 
       AddChildren(0, missProb);
     }
-    else if (playerAction == PlayerAction::bait)
+    else if (childPlayerAction == PlayerAction::bait)
     {
       if (this->stateAfter.safariBaitThrowCounter == 0)
       {
@@ -199,7 +198,7 @@ struct Node
         AddChildren(6, Fraction::ONE);
     }
 
-    else if (playerAction == PlayerAction::rock)
+    else if (childPlayerAction == PlayerAction::rock)
     {
       if (this->stateAfter.safariRockThrowCounter == 0)
       {
@@ -232,53 +231,60 @@ struct Node
     }
   }
 
-  Fraction GetProb(bool considerParents) const
+  PlayerAction GetPlayerAction() const
   {
-    if (!considerParents)
-      return this->playerActionProb.MulNew(this->pokemonActionProb);
-
-    Fraction val(1);
-    for (const Node* node = this; node != nullptr; node = node->parent)
-      val.Mul(node->GetProb(false));
-    return val;
+    if (this->childTurn == 0)
+      return PlayerAction::root;
+    return actionByTurn[this->childTurn - 1];
   }
 
-  std::string DebugId()
+  bool Fled() const
+  {
+    return this->pokemonAction == PokemonAction::flee;
+  }
+
+  bool IsCaught() const
+  {
+    return this->pokemonAction == PokemonAction::caught;
+  }
+
+  std::string DebugId() const
   {
     if (this->parent == nullptr)
       return "ROOT";
 
     std::string str = "";
-    if (this->playerAction == PlayerAction::ball)
-      str = this->playerActionValue == 0 ? "Ball_Miss" : "Ball_Catch";
-    else if (this->playerAction == PlayerAction::bait)
-      str = "Bait" + std::to_string(this->stateBefore.safariBaitThrowCounter) + "=>" + std::to_string(this->playerActionValue) + "";
-    else if (this->playerAction == PlayerAction::rock)
-      str = "Rock" + std::to_string(this->stateBefore.safariRockThrowCounter) + "=>" + std::to_string(this->playerActionValue) + "";
+    auto playerAction = GetPlayerAction();
+    if (playerAction == PlayerAction::ball)
+      str = playerActionValue == 0 ? "Ball_Miss" : "Ball_Catch";
+    else if (playerAction == PlayerAction::bait)
+      str = "Bait=>" + std::to_string(this->playerActionValue) + "";
+    else if (playerAction == PlayerAction::rock)
+      str = "Rock=>" + std::to_string(this->playerActionValue) + "";
 
     str += " (" + this->playerActionProb.ToStr() + ")";
 
-    if (!this->stateAfter.caught)
+    if (!this->IsCaught())
     {
-      str += this->stateAfter.fled ? " Flee" : " Watch";
+      str += this->Fled() ? " Flee" : " Watch";
       str += " (" + this->pokemonActionProb.ToStr() + ")";
 
-      if (!this->stateAfter.fled)
+      if (!this->Fled())
       {
         str += " B" + std::to_string(this->stateAfter.safariBaitThrowCounter);
 
-        if (this->playerAction != PlayerAction::rock && this->stateAfter.safariRockThrowCounter != 0)
+        if (playerAction != PlayerAction::rock && this->stateAfter.safariRockThrowCounter != 0)
           str += " R" + std::to_string(this->stateAfter.safariRockThrowCounter);
       }
     }
 
-    auto probParent = this->GetProb(true);
+    auto probParent = this->probConsideringParent;
     str += " (Abs: " + probParent.ToStr() + ")";
 
     return str;
   }
 
-  std::string DebugIdWithIndent()
+  std::string DebugIdWithIndent() const
   {
     std::string str = "";
     for (int i = 0; i < this->childTurn; i++)
@@ -294,10 +300,10 @@ int main()
   if (DebugFilename != nullptr)
     fopen_s(&DebugFile, DebugFilename,"w");
 
-  State chanseyInitialState(30, 125);
+  State::catchRate = 30;
+  State::safariZoneFleeRate = 125;
 
-  Node root(chanseyInitialState, actionByTurn);
-
+  Node root;
   Fraction catchProb = root.GenerateChildNodes_recursive();
 
   std::cout << "Catch probability = " << catchProb.ToStr() << "\n";
