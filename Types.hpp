@@ -10,6 +10,7 @@ enum PlayerAction : char
   ball,
   bait,
   rock,
+  /* Action for dummy root node*/
   root,
 };
 
@@ -18,5 +19,6 @@ enum PokemonAction : char
   flee,
   watchCarefully,
   caught,
+  /* Action for dummy root node*/
   root2,
 };

@@ -23,7 +23,7 @@
     <ClInclude Include="R128.hpp">
       <Filter>Source Files</Filter>
     </ClInclude>
-    <ClInclude Include="Fraction.hpp">
+    <ClInclude Include="Prob.hpp">
       <Filter>Source Files</Filter>
     </ClInclude>
     <ClInclude Include="Constants.hpp">

@@ -2,7 +2,7 @@
 
 #include "Types.hpp"
 #include "Constants.hpp"
-#include "Fraction.hpp"
+#include "Prob.hpp"
 
 struct State
 {
@@ -24,7 +24,7 @@ struct State
       this->safariEscapeFactor = 2;
   }
 
-  const std::pair<const Fraction, const Fraction>& GetStayFleeProb() const
+  const std::pair<const Prob, const Prob>& GetStayFleeProb() const
   {
     u8 safariFleeRate;
 
@@ -48,25 +48,26 @@ struct State
     return StayFleeProbBySafariFleeRate[safariFleeRate];
   }
 
-  const std::pair<const Fraction, const Fraction>& GetCatchMissProb() const
+  const std::pair<const Prob, const Prob>& GetCatchMissProb() const
   {
     return CatchMissProbBySafariCatchFactor[this->safariCatchFactor];
   }
 
-  State& ApplyActions(PlayerAction playerAction, u8 playerActionValue, PokemonAction pokemonAction)
+  State ApplyActions(PlayerAction playerAction, u8 playerActionValue, PokemonAction pokemonAction) const
   {
+    State newState = *this;
     if (pokemonAction == PokemonAction::flee)
-      return *this; // Caught & flee logic is handled in Node class
+      return newState; // Caught & flee logic is handled in Node class
 
     if (playerAction == PlayerAction::bait)
-      this->OnBait(playerActionValue);
+      newState.OnBait(playerActionValue);
 
     else if (playerAction == PlayerAction::rock)
-      this->OnRock(playerActionValue);
+      newState.OnRock(playerActionValue);
 
-    this->OnPokemonWatchesCarefully();
+    newState.OnPokemonWatchesCarefully();
 
-    return *this;
+    return newState;
   }
 
   void OnRock(u8 playerActionValue)

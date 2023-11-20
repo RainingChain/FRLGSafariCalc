@@ -134,7 +134,7 @@
   <ItemGroup>
     <ClInclude Include="Constants.hpp" />
     <ClInclude Include="R128.hpp" />
-    <ClInclude Include="Fraction.hpp" />
+    <ClInclude Include="Prob.hpp" />
     <ClInclude Include="State.hpp" />
     <ClInclude Include="Types.hpp" />
   </ItemGroup>

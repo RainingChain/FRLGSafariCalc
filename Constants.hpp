@@ -1,11 +1,15 @@
 #pragma once
 
 #include "Types.hpp"
-#include "Fraction.hpp"
+#include "Prob.hpp"
 
-static const std::vector<std::pair<const Fraction, const Fraction>> StayFleeProbBySafariFleeRate = ([]()
+/* 
+StayFleeProbBySafariFleeRate[SafariFleeRate] = {StayProbability, FleeProbability} 
+Ex: StayFleeProbBySafariFleeRate[45] =  {~55%, ~45%}
+*/
+static const std::vector<std::pair<const Prob, const Prob>> StayFleeProbBySafariFleeRate = ([]()
   {
-    std::vector<std::pair<const Fraction, const Fraction>> arr;
+    std::vector<std::pair<const Prob, const Prob>> arr;
     for (u32 safariFleeRate = 0; safariFleeRate <= 255; safariFleeRate++)
     {
       // RandomUint16 % 100 is more likely to be between 0-35 then 36+
@@ -16,19 +20,23 @@ static const std::vector<std::pair<const Fraction, const Fraction>> StayFleeProb
       for (u32 i = 0; i < safariFleeRate; i++)
         count += i < 36 ? count_below36 : count_at36AndAbove;
 
-      arr.emplace_back(Fraction(65536 - count, 65536), Fraction(count, 65536));
+      arr.emplace_back(Prob(65536 - count, 65536), Prob(count, 65536));
     }
   return arr;
   })();
 
-  
-static const std::vector<std::pair<const Fraction, const Fraction>> CatchMissProbBySafariCatchFactor = ([]()
+
+/*
+CatchMissProbBySafariCatchFactor[SafariCatchFactor] = {CatchProbability, MissProbability}
+Ex: CatchMissProbBySafariCatchFactor[3] =  {~8%, ~92%}
+*/
+static const std::vector<std::pair<const Prob, const Prob>> CatchMissProbBySafariCatchFactor = ([]()
   {
-    std::vector<std::pair<const Fraction, const Fraction>> arr;
+    std::vector<std::pair<const Prob, const Prob>> arr;
 
     auto Sqrt = [](u32 val)
     {
-      // gba Sqrt truncates. see http://starflakenights.net/libraries/devkitpro-libgba/docs/html/a00019.html#a72965f900a655e3dc76d2491d415d2a4
+      // gba Sqrt truncates. See http://starflakenights.net/libraries/devkitpro-libgba/docs/html/a00019.html#a72965f900a655e3dc76d2491d415d2a4
       return (u16)std::sqrt(val);
     };
 
@@ -40,20 +48,20 @@ static const std::vector<std::pair<const Fraction, const Fraction>> CatchMissPro
 
       if (odds > 254)
       {
-        arr.emplace_back(Fraction::ONE, Fraction::ZERO);
+        arr.emplace_back(Prob::ONE, Prob::ZERO);
         continue;
       }
       if (odds == 0)
       {
-        arr.emplace_back(Fraction::ZERO, Fraction::ONE);
+        arr.emplace_back(Prob::ZERO, Prob::ONE);
         continue;
       }
 
       odds = Sqrt(Sqrt(16711680 / odds));
       odds = 1048560 / odds;
 
-      Fraction baseProb(odds, 65536);
-      Fraction res(1);
+      Prob baseProb(odds, 65536);
+      Prob res(1);
       for (int i = 0; i < 4; i++)
         res.Mul(baseProb);
 
